@@ -1,0 +1,18 @@
+# Meta
+.gitignore
+Dockerfile
+Jenkinsfile
+README.md
+sonar.properties
+unit-test.sh
+
+# IDEs
+.idea
+
+# Mac
+.DS_Store
+
+# Other
+.vscode
+unit-tests.xml
+test-reports

@@ -1,0 +1,10 @@
+# IDEs
+.idea
+
+# Mac
+.DS_Store
+
+# Other
+.vscode
+unit-tests.xml
+test-reports
