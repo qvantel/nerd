@@ -1,6 +1,9 @@
+// Package api contains the handlers and types that support nerd's REST API
 package api
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/qvantel/nerd/api/types"
 	"github.com/qvantel/nerd/internal/config"
@@ -56,6 +59,7 @@ func New(tServ chan types.TrainRequest, conf config.Config) (*Handler, error) {
 	router.Use(gin.Recovery())
 
 	// Routes
+	router.GET("/", h.ShowWelcomeMsg)
 	v1 := router.Group("/api/v1")
 	{
 		health := v1.Group("/health")
@@ -74,10 +78,25 @@ func New(tServ chan types.TrainRequest, conf config.Config) (*Handler, error) {
 			series.GET("", h.ListSeries)
 			series.DELETE("/:id", h.DeleteSeries)
 			series.GET("/:id/points", h.ListPoints)
-			series.POST("/process", h.AddPoint)
+			series.POST("/process", h.ProcessEvent)
 		}
 	}
 
 	logger.Info("API initialized")
 	return &h, nil
+}
+
+// ShowWelcomeMsg is a simple handler method for showing a helpful message at the root of the HTTP server
+func (h *Handler) ShowWelcomeMsg(c *gin.Context) {
+	msg := `<!doctype html>
+<html>
+	<body>
+		<h1>nerd ` + h.Conf.AppVersion + `</h1>
+
+		Welcome to the nerd API! This is a restful machine learning service, if you'd like to learn more about it, maybe
+		check out the github project <a href="https://github.com/qvantel/nerd">here</a>.
+	</body>
+</html>`
+	c.Writer.WriteHeader(http.StatusOK)
+	c.Writer.Write([]byte(msg))
 }

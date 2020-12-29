@@ -3,9 +3,146 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/qvantel/nerd)](https://goreportcard.com/report/github.com/qvantel/nerd)
 [![Build status](https://img.shields.io/docker/cloud/build/qvantel/nerd.svg)](https://hub.docker.com/r/qvantel/nerd/builds)
 [![Docker pulls](https://img.shields.io/docker/pulls/qvantel/nerd.svg)](https://hub.docker.com/r/qvantel/nerd)
+[![Release](https://img.shields.io/github/v/release/qvantel/nerd.svg)](https://github.com/qvantel/nerd/releases/latest)
 
 Welcome to the nerd repo! This service offers machine learning capabilities through a simple API, thus allowing other
 services to be smarter without requiring a huge effort.
+
+## Index
+
+- [Quick Start](#quick-start)
+- [Requirements](#requirements)
+- [Deployment](#deployment)
+- [Use](#use)
+    - [Collectors](#collectors)
+        - [File](#file)
+    - [Metrics Updates](#metrics-updates)
+    - [Manual Training](#manual-training)
+    - [Evaluating An Input](#evaluating-an-input)
+    - [Listing Available Entities](#listing-available-entities)
+    - [Health](#health)
+- [Testing](#testing)
+
+## Quick Start
+
+If you just want to try nerd out and see what it can do, here is a quick guide for running a test setup with containers:
+
+1. Start a Zookeeper instance (nerd currently requires [Kafka](https://kafka.apache.org/documentation/#gettingStarted)
+which in turn requires [Zookeeper](https://zookeeper.apache.org/)):
+    ```bash
+    docker run -d --restart=unless-stopped \
+      --log-driver json-file \
+      -p 2181:2181 \
+      --name zookeeper zookeeper:3.6.2
+    ```
+1. Start a Kafka broker:
+    ```bash
+    docker run -d --restart=unless-stopped \
+      --log-driver json-file \
+      -p 7203:7203 -p 7204:7204 -p 9092:9092 \
+      -e "KAFKA_LISTENERS=PLAINTEXT://:9092" \
+      -e "KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://host.docker.internal:9092" \
+      -e "KAFKA_DEFAULT_REPLICATION_FACTOR=1" \
+      -e "KAFKA_DELETE_TOPIC_ENABLE=true" \
+      -e "KAFKA_ZOOKEEPER_CONNECT=host.docker.internal:2181" \
+      -e "KAFKA_BROKER_ID=1" \
+      -e "KAFKA_HEAP_OPTS=-Xmx4G -Xms4G" \
+      -e "ZOOKEEPER_SESSION_TIMEOUT_MS=30000" \
+      --name kafka wurstmeister/kafka:2.12-2.1.1
+    ```
+    If running on linux, you might need to include the following in the docker run command (anywhere between
+    `docker run` and the image)(same for the next steps):
+    ```bash
+      --add-host host.docker.internal:host-gateway
+    ```
+1. Start a nerd instance:
+    > Here we're going to run nerd using the filesystem to store the neural net's parameters and the series' points, if
+    > you'd like a more performant setup, refer to the ["Requirements"](#requirements) section for instructions on how
+    > to setup [Redis](https://redis.io/topics/introduction) and [Elasticsearch](https://www.elastic.co/elasticsearch/)
+    > instead.
+    ```bash
+    docker run -d --restart=unless-stopped -m 64m \
+      --log-opt max-size=5m --log-driver=json-file \
+      -p 5400:5400 \
+      -e "LOG_LEVEL=INFO" \
+      -e "SD_KAFKA=host.docker.internal:9092" \
+      --name nerd qvantel/nerd:0.3.0
+    ```
+1. Check that everything is up and running by going to http://localhost:5400 with your browser (if you see a welcome
+message, everything is good)
+    > Not seeing anything? You can check the nerd logs with `docker logs --tail 100 nerd` to see if there are any
+    > errors
+1. Train a network to detect forged banknotes:
+    1. Download the dataset from the UCI ML repo [here](http://archive.ics.uci.edu/ml/machine-learning-databases/00267/data_banknote_authentication.txt)
+        > Credit: Dua, D. and Graff, C. (2019). UCI Machine Learning Repository [http://archive.ics.uci.edu/ml].
+        > Irvine, CA: University of California, School of Information and Computer Science.
+    1. Shuffle the points:
+        ```bash
+        sort -R -o shuffled-dataset.txt data_banknote_authentication.txt
+        ```
+    1. Load the test data using the built-in file collector:
+        > If you want, you can add `variance,skewness,curtosis,entropy,class` to the beginning of `shuffled-dataset.txt`
+        > and use the `-headers` variable to properly label the values, otherwise names will be auto-generated
+        ```bash
+       docker run -it --rm \
+         -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
+         --entrypoint=/opt/docker/fcollect qvantel/nerd:0.3.0 \
+           -batch 50 \
+           -in 4 \
+           -margin 0.4999999 \
+           -producer "kafka" \
+           -sep "," \
+           -series "banknote-forgery-detection" \
+           -targets "host.docker.internal:9092" \
+           dataset
+        ```
+    1. Send a training request:
+        > If you opted to add the headers in the previous step, use `["variance","skewness","curtosis","entropy"]` as
+        > inputs and `["class"]` as the output instead of the values bellow
+        ```bash
+        curl -XPOST -H "Content-Type: application/json" --data @- \
+            localhost:5400/api/v1/nets <<EOF
+        {
+            "errMargin": 0.4999999,
+            "inputs": ["value-0", "value-1", "value-2", "value-3"],
+            "outputs": ["value-4"],
+            "required": 1372,
+            "seriesID": "banknote-forgery-detection"
+        }
+        EOF
+        ```
+    1. Check out the resulting net by going to http://localhost:5400/api/v1/nets
+1. Use the network:
+    1. With an authentic note (the output should be closer to 0 than 1)
+        ```bash
+        NET=banknote-forgery-detection-8921e4a37dabacc06fec3318e908d9fe4eb75b46-7804b6fc74b5c0a74cc0820420fa0edf6b1a117c-mlp
+        ENDPOINT=localhost:5400/api/v1/nets/$NET/evaluate
+
+        curl -XPOST -H"Content-Type: application/json" --data @- \
+            $ENDPOINT <<EOF
+        {
+            "value-0": 3.2403,
+            "value-1": -3.7082,
+            "value-2": 5.2804,
+            "value-3": 0.41291
+        }
+        EOF
+        ```
+    1. With a forged note (the output should be closer to 1 than 0)
+        ```bash
+        curl -XPOST -H"Content-Type: application/json" --data @- \
+            $ENDPOINT <<EOF
+        {
+            "value-0": -1.4377,
+            "value-1": -1.432,
+            "value-2": 2.1144,
+            "value-3": 0.42067
+        }
+        EOF
+        ```
+    > Curious about how to programmatically get the id? It can be calculated like so:
+    > `seriesID + "-" + sha1(inputs) + "-" + sha1(outputs) + "-" + netType` (try it out on go playground
+    > [here](https://play.golang.org/p/fmLNLuJhvT5))
 
 ## Requirements
 
@@ -13,24 +150,36 @@ This service has the following dependencies:
 
 ### Kafka
 
-Even though metrics updates can be sent through the rest API, it's better use a service like Kafka (maybe nats in the
-future) to decouple that interaction and benefit from built in load balancing. When producing metrics updates, the
+Even though metrics updates can be sent through the rest API, it's better to use a service like Kafka (maybe nats in the
+future) to decouple that interaction and benefit from built-in load balancing. When producing metrics updates, the
 series ID should be used by the partitioning strategy so that we have a smaller chance of triggering training for the
 same series twice.
+
+For testing, the Zookeeper and Kafka docker run commands from the ["Quick Start"](#quick-start) section can be used.
 
 ### A Network Parameter Store
 
 Currently, Redis (and the filesystem but that should only be used for testing).
 
-When using Sentinel with Redis, the `ML_STORE_PARAMS` variable should be used (instead of `SD_REDIS`) like so:
+When using Redis with Sentinel, the `ML_STORE_PARAMS` variable should be used (instead of `SD_REDIS`) like so:
 ```bash
   -e 'ML_STORE_PARAMS={"group": "<master>", "URLs": "<sen1-host>:<sen1-port>,...,<senN-host>:<senN-port>"}'
 ```
 Where `group` contains the master group name and `URLs` the comma-separated list of Sentinel instance host:port pairs.
 
+For testing, the following command can be used to start up a Redis replica:
+```bash
+docker run -d \
+  --log-driver json-file \
+  -p 6379:6379 \
+  --name redis redis:6.0.9-alpine
+```
+
 ### A Point Store
 
-Currently, Elasticsearch (and the filesystem but that should only be used for testing). If Elasticsearch is used:
+Currently, Elasticsearch (and the filesystem but that should only be used for testing).
+
+If Elasticsearch is used:
 
 - The `action.auto_create_index` setting must be set to `.watches,.triggered_watches,.watcher-history-*` otherwise it
 will create non optimal mappings increasing the storage impact.
@@ -43,10 +192,11 @@ sending one update per point as it is extracted.
 For testing, it is possible to get a working Elasticsearch instance quickly with the following command:
 ```bash
 docker run -d \
+  --log-driver json-file \
   -p 9200:9200 -p 9300:9300 \
   -e "discovery.type=single-node" \
   -e "action.auto_create_index=.watches,.triggered_watches,.watcher-history-*" \
-  --name elasticsearch elasticsearch:7.9.3
+  --name elasticsearch elasticsearch:7.10.1
 ```
 
 ## Deployment
@@ -61,10 +211,10 @@ docker run -d --restart=unless-stopped -m 64m \
   -e "LOG_LEVEL=INFO" \
   -e "SD_ELASTICSEARCH=http://host.docker.internal:9200" \
   -e "SERIES_STORE_TYPE=elasticsearch" \
-  -e "SD_KAFKA=192.168.56.11:9092" \
-  -e "SD_REDIS=192.168.56.11:6379" \
+  -e "SD_KAFKA=host.docker.internal:9092" \
+  -e "SD_REDIS=host.docker.internal:6379" \
   -e "ML_STORE_TYPE=redis" \
-  --name nerd qvantel/nerd:0.2.1
+  --name nerd qvantel/nerd:0.3.0
 ```
 > You can find all available tags [here](https://hub.docker.com/r/qvantel/nerd/tags)
 
@@ -101,7 +251,42 @@ The following environment variables are available:
 
 Once the service has been deployed, it is possible to interact with it either through Kafka or the rest API.
 
-### Metrics updates
+### Collectors
+
+These are lightweight components that can be used to import data from other services into nerd. To facilitate their
+development, nerd exposes the `github.com/qvantel/nerd/api/types` and `github.com/qvantel/nerd/pkg/producer` modules
+which include the types used by the rest and Kafka interfaces as well as ready-made methods for producing messages to
+them.
+
+#### File
+At the time of writing, the only public collector is the one built into this project under the fcollect command, which
+imports datasets from plain text files. It can be accessed from the container (as seen in the
+["Quick Start"](#quick-start) section) by changing the entrypoint to `/opt/docker/fcollect` like so (anything placed
+after the image will be passed to fcollect as an argument):
+```bash
+docker run -it --rm \
+  -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
+  --entrypoint=/opt/docker/fcollect \
+  --name fcollect qvantel/nerd:0.3.0 -series "demo" -targets "http://host.docker.internal:5400" dataset
+```
+Where the `-series` and `-targets` flags as well as the path to the dataset (full or relative to `/opt/docker` inside
+the container) are required. Additionally, the following flags can be used to change the behaviour of the tool:
+
+| Flag      | Type     | Default       | Description                                                                                                                          |
+|-----------|----------|---------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| -batch    | int      | 10            | Maximum number of points to bundle in a single metrics update                                                                        |
+| -headers  | bool     | false         | If true, the first line will be used to name the values                                                                              |
+| -in       | int      | 1             | Number of inputs, counted left to right, all others will be considered outputs                                                       |
+| -margin   | float    | 0             | Maximum difference between a prediction and the expected value for it to still be considered correct                                 |
+| -producer | string   | "rest"        | What producer to use. Supported values are `rest` and `kafka`                                                                        |
+| -sep      | string   | " "           | String sequence that denotes the end of one field and the start of the next                                                          |
+| -series   | string   | N/A           | ID of the series that these points belong to                                                                                         |
+| -stage    | string   | "test"        | Category of the data, `production` for real world patterns, `test` for anything else                                                 |
+| -targets  | string   | N/A           | Comma separated list of `protocol://host:port` for nerd instances when using `rest`, `host:port` of Kafka brokers when using `kafka` |
+| -timeout  | duration | 15s           | Maximum time to wait for the production of a message                                                                                 |
+| -topic    | string   | "nerd-events" | Where to produce the messages when using `kafka`                                                                                     |
+
+### Metrics Updates
 
 Metrics updates can be ingested through either the `$SERIES_KAFKA_TOPIC` topic in Kafka or the `/api/v1/series/process`
 endpoint. In both cases the message must conform to the
@@ -125,7 +310,7 @@ Additionally, the data fields should be filled in like so:
 | data.seriesID  | Should conform to `[a-z][a-z0-9\._\-]+` and reference what that data can be used to predict. For example, if it's generic enough to predict storage impact in any env that uses that product stack, it should contain the stack version but not the env |
 | data.errMargin | Maximum difference between the expected and produced result to still be considered correct during testing. Currently, this margin will be applied to all outputs of networks generated automatically                                                    |
 | data.labels    | Should include any labels that might be useful for filtering later. Note that `subject` and `data.stage` will be copied here automatically                                                                                                              |
-| data.points    | All points for the same series ID must contain the same values (doesn't matter if they are noted as inputs or outputs although within the same metrics update they do have to all be categorized in the same way)                                       |
+| data.points    | All points for the same series ID must contain the same attributes (doesn't matter if they are noted as inputs or outputs although within the same metrics update they do have to all be categorized in the same way)                                   |
 | data.stage     | Must be either `production` for production grade data (usually that which originates from real world usage) or `test` (for anything else). The message will not be processed if this field doesn't have a valid value                                   |
 
 Example:
@@ -165,7 +350,7 @@ Example:
 
 ### Manual Training
 
-Even through the service will automatically schedule training when it has enough points of a series, it is still
+Even though the service will automatically schedule training when it has enough points of a series, it is still
 possible to manually trigger training from any preexisting series. To do this, just post a training request to the
 `/api/v1/nets` endpoint like so (where `$URL` contains the address of the nerd service):
 
@@ -173,8 +358,8 @@ possible to manually trigger training from any preexisting series. To do this, j
 curl -XPOST -H"Content-Type: application/json" --data @- \
     $URL/api/v1/nets <<EOF
 {
-    "errMargin": 0.49999999,
-    "inputs": ["value-0", "value-1", "value-2", "value-8", "value-4", "value-5", "value-6", "value-7", "value-3"],
+    "errMargin": 0.4999999,
+    "inputs": ["value-0", "value-1", "value-2", "value-3", "value-4", "value-5", "value-6", "value-7", "value-8"],
     "outputs": ["value-9", "value-10"],
     "required": 699,
     "seriesID": "testloadtestset"
@@ -187,12 +372,12 @@ Where, the fields contain the following information:
 | Field     | Description                                                                                               |
 |-----------|-----------------------------------------------------------------------------------------------------------|
 | errMargin | Maximum difference between the expected and produced result to still be considered correct during testing |
-| inputs    | Which of the series values should be treated as inputs                                                    |
-| outputs   | Which of the series values should be treated as outputs                                                   |
+| inputs    | Which of the series values should be used as inputs                                                       |
+| outputs   | Which of the series values should be used as outputs                                                      |
 | required  | Number of points from the series that should be used to train and test                                    |
 | seriesID  | ID of the series that should be used for training                                                         |
 
-### Evaluating an input
+### Evaluating An Input
 
 Once a net has been trained, it can be exploited through the `/api/v1/nets/{id}/evaluate` endpoint like so (where `$URL`
 contains the address of the nerd service and `$ID` the ID of the network):
@@ -225,7 +410,7 @@ Sample response:
 {"value-9":0.16796547}
 ```
 
-### Listing available entities
+### Listing Available Entities
 
 - Nets:
   - Endpoint: `/api/v1/nets`
@@ -233,7 +418,7 @@ Sample response:
   - Params:
     - offset: Offset to fetch, 0 by default
     - limit: How many networks to fetch, the service might return more in some cases, 10 by default, 50 maximum
-  - Returns: A `types.PagedRes` object and a 200 if successful, a `types.APIError` object and a 400 or 500 if not (depending on the error)
+  - Returns: A `types.PagedRes` object and a 200 if successful, a `types.SimpleRes` object and a 400 or 500 if not (depending on the error)
   - Sample response:
 ```json
 {
@@ -339,7 +524,7 @@ Sample response:
 - Series:
   - Endpoint: `/api/v1/series`
   - Method: GET
-  - Returns: An array of `types.BriefSeries` objects and a 200 if successful, a `types.APIError` object and a 500 if not
+  - Returns: An array of `types.BriefSeries` objects and a 200 if successful, a `types.SimpleRes` object and a 500 if not
   - Sample response:
 ```json
 [
@@ -355,7 +540,7 @@ Sample response:
   - Method: GET
   - Params:
     - limit: How many points to fetch, 10 by default, 500 maximum
-  - Returns: An array of `pointstores.Point` objects and a 200 if successful, a `types.APIError` object and a 404 or 500 if not (depending on the error)
+  - Returns: An array of `pointstores.Point` objects and a 200 if successful, a `types.SimpleRes` object and a 404 or 500 if not (depending on the error)
   - Sample response:
 ```json
 [

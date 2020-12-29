@@ -24,7 +24,7 @@ func main() {
 	logger.Info("Initializing component")
 	if err != nil {
 		logger.Error("Error encountered while loading configuration", err)
-		return
+		os.Exit(1)
 	}
 
 	var g run.Group
@@ -47,7 +47,7 @@ func main() {
 	api, err := api.New(tServ, *conf)
 	if err != nil {
 		logger.Error("Error encountered initializing API", err)
-		return
+		os.Exit(1)
 	}
 	srv := &http.Server{
 		Addr:    ":5400",
@@ -67,5 +67,6 @@ func main() {
 	err = g.Run()
 	if err != nil {
 		logger.Error("Critical error encountered, exiting", err)
+		os.Exit(1)
 	}
 }

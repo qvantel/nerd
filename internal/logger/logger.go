@@ -1,3 +1,4 @@
+// Package logger includes extended JSON logging functionality
 package logger
 
 import (

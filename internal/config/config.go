@@ -1,3 +1,4 @@
+// Package config centralizes the parsing of application configuration
 package config
 
 import (
@@ -75,6 +76,9 @@ func New() (*Config, error) {
 		return &conf, err
 	}
 	conf.ML.Net = Getenv("ML_NET", "mlp")
+	if conf.ML.Net != "mlp" {
+		return &conf, errors.New(conf.ML.Net + " is not a valid net type")
+	}
 	conf.ML.MaxEpoch, err = strconv.Atoi(Getenv("ML_MAX_EPOCH", "1000"))
 	if err != nil {
 		return &conf, err
@@ -93,8 +97,8 @@ func New() (*Config, error) {
 	if err != nil {
 		return &conf, err
 	}
-	if ts <= 0 || ts >= 1 {
-		return &conf, errors.New("Test set must be > 0 and < 1")
+	if ts < 0 || ts >= 1 {
+		return &conf, errors.New("test set must be between 0 (included) and 1 (not included)")
 	}
 	conf.ML.TestSet = float32(ts)
 	tolerance, err := strconv.ParseFloat(Getenv("ML_TOLERANCE", "0.1"), 32)
@@ -110,7 +114,7 @@ func New() (*Config, error) {
 	}
 	brokers := os.Getenv("SD_KAFKA")
 	if brokers == "" {
-		return &conf, errors.New("No value found for required variable SD_KAFKA")
+		return &conf, errors.New("no value found for required variable SD_KAFKA")
 	}
 	conf.Series.Source = Kafka{
 		Brokers: strings.Split(brokers, ","),
