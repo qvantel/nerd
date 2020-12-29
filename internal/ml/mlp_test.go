@@ -2,7 +2,6 @@ package ml
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/qvantel/nerd/internal/config"
@@ -133,10 +132,7 @@ func TestTrain2(t *testing.T) {
 
 	ps := pointstores.FileAdapter{Path: "."}
 
-	points, err := ps.LoadTestSet("test/normalization_test_data.txt")
-	if os.IsNotExist(err) {
-		points, err = ps.LoadTestSet("../../test/normalization_test_data.txt")
-	}
+	points, err := ps.LoadTestSet("../../test/normalization_test_data.txt")
 	if err != nil {
 		t.Fatalf("Failed to load test data (%s)", err.Error())
 	}

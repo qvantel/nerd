@@ -1,3 +1,4 @@
+// Package series contains the logic that manages the datasets used for machine learning
 package series
 
 import (
@@ -71,7 +72,7 @@ func ProcessUpdate(event event.Event, ps pointstores.PointStore, tServ chan type
 			}
 		}
 		// Queue up training if enough points are available
-		req, err := ml.Required(len(inputs), 1, conf.ML.HLayers, conf) // 1 because we'll be creating individual nets for each output
+		req, _ := ml.Required(len(inputs), 1, conf.ML.HLayers, conf) // 1 because we'll be creating individual nets for each output
 		logger.Trace(fmt.Sprintf("Got %d points for %s, %d required for training", count+len(mu.Points), mu.SeriesID, req))
 		if count < req && count+len(mu.Points) >= req {
 			if conf.Series.StoreType == "elasticsearch" {

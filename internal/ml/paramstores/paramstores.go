@@ -1,3 +1,4 @@
+// Package paramstores contains the implementation of all the supported storage adapters for the network parameters
 package paramstores
 
 import (

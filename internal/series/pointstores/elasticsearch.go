@@ -111,6 +111,9 @@ func (ea ElasticAdapter) AddSeries(name string, sample Point, retentionDays int)
 	}
 
 	jProps, err := json.Marshal(props)
+	if err != nil {
+		return err
+	}
 	mapping := `{"mappings":{"date_detection": false, "properties":` + string(jProps) + "}}"
 	logger.Info("Creating new index for series " + name + " with this mapping: " + mapping)
 	res, err := ea.client.Indices.Create(index, ea.client.Indices.Create.WithBody(strings.NewReader(mapping)))
@@ -195,7 +198,7 @@ func (ea ElasticAdapter) GetLatest(name string, labels map[string]string) (Point
 		return Point{}, err
 	}
 	if len(res.Hits.Hits) < 1 {
-		return Point{}, errors.New("No points found")
+		return Point{}, errors.New("no points found")
 	}
 	return res.Hits.Hits[0].P, nil
 }
@@ -236,7 +239,7 @@ func (ea ElasticAdapter) ListSeries() ([]types.BriefSeries, error) {
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
 		return nil, err
 	}
-	var series []types.BriefSeries
+	series := []types.BriefSeries{}
 	for _, s := range r {
 		count := 0
 		if s["docs.count"] != nil {
@@ -268,7 +271,7 @@ func (ea ElasticAdapter) LoadTestSet(name, path string) error {
 }
 
 func esToErr(context, err string) error {
-	return errors.New("Error encountered while " + context + ": " + err)
+	return errors.New("error encountered while " + context + ": " + err)
 }
 
 func (ea ElasticAdapter) query(index, stmt string) (QResponse, error) {

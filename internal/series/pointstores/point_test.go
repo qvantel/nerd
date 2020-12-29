@@ -2,7 +2,6 @@ package pointstores
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 )
 
@@ -37,7 +36,6 @@ func TestUnmarshalJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("The custom JSON marshal method shouldn't fail to convert a known valid point (%s)", err.Error())
 	}
-	fmt.Println(string(jPoint))
 
 	var b Point
 	err = json.Unmarshal(jPoint, &b)

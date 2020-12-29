@@ -3,7 +3,6 @@ package pointstores
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"sort"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/qvantel/nerd/api/types"
+	"github.com/qvantel/nerd/internal/logger"
 )
 
 // FileAdapter is a point store implementation that uses the filesystem. Its main purpose is to facilitate
@@ -37,6 +37,9 @@ func (fa FileAdapter) AddPoint(name string, p Point) error {
 		}
 	}
 	f, err := os.Create(fa.Path + "/" + dir + "/" + p.ID())
+	if err != nil {
+		return err
+	}
 	jPoint, err := json.Marshal(p)
 	if err != nil {
 		return err
@@ -55,8 +58,8 @@ func (fa FileAdapter) AddPoint(name string, p Point) error {
 // AddSeries creates a directory to hold a time series
 func (fa FileAdapter) AddSeries(name string, sample Point, retentionDays int) error {
 	dir := prefix + cleanDir(name)
-	err := os.Mkdir(fa.Path+"/"+dir, 0755)
-	return err
+	logger.Info("Creating new directory for series " + name)
+	return os.Mkdir(fa.Path+"/"+dir, 0755)
 }
 
 // DeleteSeries removes the subdirectory used to store a series
@@ -131,10 +134,6 @@ func (fa FileAdapter) GetLastN(name string, labels map[string]string, n int) ([]
 		points = append(points, p)
 	}
 
-	for _, point := range points {
-		fmt.Printf(" - %s %d\n", point.ID(), point.TimeStamp)
-	}
-
 	return points, nil
 }
 
@@ -144,7 +143,7 @@ func (fa FileAdapter) ListSeries() ([]types.BriefSeries, error) {
 	if err != nil {
 		return nil, err
 	}
-	var series []types.BriefSeries
+	series := []types.BriefSeries{}
 	for _, file := range files {
 		if !file.IsDir() || file.Name()[:len(prefix)] != prefix {
 			continue

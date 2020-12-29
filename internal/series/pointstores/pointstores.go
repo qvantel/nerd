@@ -1,3 +1,4 @@
+// Package pointstores contains the implementation of all the supported storage adapters for the series
 package pointstores
 
 import (

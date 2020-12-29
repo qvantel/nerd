@@ -1,9 +1,5 @@
+// Package types contains most of the objects that the API reads or writes
 package types
-
-// APIError is used to convey issues to the API client
-type APIError struct {
-	Msg string `json:"message"`
-}
 
 // PagedRes is a wrapper for a paged response where next can be provided as offset for the subsequent request and last
 // can be used to determine when there is nothing left to read
@@ -11,6 +7,23 @@ type PagedRes struct {
 	Last    bool        `json:"last"`
 	Next    int         `json:"next"`
 	Results interface{} `json:"results"`
+}
+
+// SimpleRes is used for errors and those cases where the response code would be sufficient but a JSON response helps
+// consistency and user friendliness
+type SimpleRes struct {
+	Result string `json:"result"` // Possible values are "error" and "ok"
+	Msg    string `json:"message"`
+}
+
+// NewOkRes is a shortcut for building a SimpleRes for a successful result
+func NewOkRes(msg string) *SimpleRes {
+	return &SimpleRes{Result: "ok", Msg: msg}
+}
+
+// NewErrorRes is a shortcut for building a SimpleRes for a failed result
+func NewErrorRes(msg string) *SimpleRes {
+	return &SimpleRes{Result: "error", Msg: msg}
 }
 
 // BriefNet is a lightweight and standardized representation for neural network parameters

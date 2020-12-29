@@ -56,7 +56,7 @@ func NewNetwork(id string, inputs, outputs []string, hLayers int, create bool, m
 
 // List encapsulates the logic required to fill in BriefNet objects from the IDs of nets in the store
 func List(offset, limit int, mls paramstores.NetParamStore) ([]types.BriefNet, int, error) {
-	var nets []types.BriefNet
+	nets := []types.BriefNet{}
 	ids, cursor, err := mls.List(offset, limit)
 	if err != nil {
 		return nil, 0, err
@@ -150,7 +150,7 @@ func Trainer(c chan types.TrainRequest, conf config.Config) error {
 func ID2Type(id string) (string, error) {
 	parts := strings.Split(id, "-")
 	if len(parts) < 4 {
-		return "", errors.New("Incorrectly formatted net ID")
+		return "", errors.New("incorrectly formatted net ID")
 	}
 	return parts[len(parts)-1], nil
 }

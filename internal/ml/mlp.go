@@ -331,7 +331,7 @@ func (net *MLP) backpropagate(target map[string]float32) error {
 func (net *MLP) Evaluate(inputs map[string]float32) (map[string]float32, error) {
 	if len(inputs) < len(net.neurons[0])-1 {
 		return nil, fmt.Errorf(
-			"Number of inputs must match the number of neurons in the first layer, expected %d got %d",
+			"number of inputs must match the number of neurons in the first layer, expected %d got %d",
 			len(net.neurons[0])-1,
 			len(inputs),
 		)
