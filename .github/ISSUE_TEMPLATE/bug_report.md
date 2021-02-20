@@ -28,7 +28,7 @@ A clear and concise description of what you expected to happen.
     # Paste your nerd environment variables here.
     # Be sure to scrub any sensitive values
     ```
-* Kafka:
+* Kafka (if present):
   * Version:
   * Config  (retrieve with `grep -v -e "^$" -e "#" server.properties` from the Kafka config dir or equivalent):
     ```

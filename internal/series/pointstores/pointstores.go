@@ -30,9 +30,9 @@ type PointStore interface {
 // New returns an initialized point store of the type specified in the configuration
 func New(conf config.Config) (PointStore, error) {
 	switch conf.Series.StoreType {
-	case "file":
+	case config.FileSeriesStore:
 		return NewFileAdapter(conf.Series.StoreParams)
-	case "elasticsearch":
+	case config.ElasticsearchSeriesStore:
 		return NewElasticAdapter(conf.Series)
 	default:
 		return nil, errors.New(conf.Series.StoreType + " is not a valid point store type")

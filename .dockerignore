@@ -1,10 +1,9 @@
 # Meta
 .gitignore
 Dockerfile
-Jenkinsfile
 README.md
-sonar.properties
-unit-test.sh
+sonar-project.properties
+.github
 
 # IDEs
 .idea
@@ -13,6 +12,6 @@ unit-test.sh
 .DS_Store
 
 # Other
+coverage.out
 .vscode
-unit-tests.xml
-test-reports
+test

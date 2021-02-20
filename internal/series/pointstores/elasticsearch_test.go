@@ -1,32 +1,33 @@
 package pointstores
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/qvantel/nerd/internal/config"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func getTestStore() (PointStore, error) {
+var testElasticStore PointStore
+
+func getTestStore(url string) (PointStore, error) {
 	var storeParams map[string]interface{}
-	json.Unmarshal([]byte(`{"URLs": "http://localhost:9200"}`), &storeParams)
+	json.Unmarshal([]byte(`{"URLs": "`+url+`"}`), &storeParams)
 	conf := config.Config{
 		Series: config.SeriesParams{
-			StoreType:   "elasticsearch",
+			StoreType:   config.ElasticsearchSeriesStore,
 			StoreParams: storeParams,
 		},
 	}
 	return New(conf)
 }
 
-func initTest(name string) (PointStore, error) {
-	ps, err := getTestStore()
-	if err != nil {
-		return ElasticAdapter{}, err
-	}
-
+func initTest(name string) error {
 	sec := int64(777808800)
 	p1 := Point{
 		Labels:    map[string]string{"env": "test"},
@@ -39,29 +40,48 @@ func initTest(name string) (PointStore, error) {
 		TimeStamp: sec + 60,
 	}
 
-	err = ps.AddPoint(name, p1)
+	err := testElasticStore.AddPoint(name, p1)
 	if err != nil {
-		return ElasticAdapter{}, err
+		return err
 	}
-	err = ps.AddPoint(name, p2)
+	err = testElasticStore.AddPoint(name, p2)
 	if err != nil {
-		return ElasticAdapter{}, err
+		return err
 	}
 	// Pause for refresh
 	time.Sleep(1 * time.Second)
 
-	return ps, nil
+	return nil
+}
+
+func startElastic(ctx context.Context) (elastic testcontainers.Container, url string, err error) {
+	req := testcontainers.ContainerRequest{
+		Env: map[string]string{
+			"discovery.type":           "single-node",
+			"action.auto_create_index": ".watches,.triggered_watches,.watcher-history-*",
+		},
+		Image:        "elasticsearch:7.10.1",
+		ExposedPorts: []string{"9200/tcp"},
+		WaitingFor:   wait.ForHTTP("/").WithPort("9200/tcp"),
+	}
+	elastic, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	endpoint, err := elastic.Endpoint(ctx, "")
+	if err != nil {
+		return nil, "", err
+	}
+	return elastic, "http://" + endpoint, nil
 }
 
 func TestExists(t *testing.T) {
-	ps, err := getTestStore()
+	found, err := testElasticStore.Exists(t.Name() + "-should-not-exist")
 	if err != nil {
-		t.Skip("Failed to initialize point store (" + err.Error() + "), assuming there's no elasticsearch")
-	}
-
-	found, err := ps.Exists(t.Name() + "-should-not-exist")
-	if err != nil {
-		t.Skip("Failed to initialize point store (" + err.Error() + "), assuming there's no elasticsearch")
+		t.Fatalf("Failed to check if series exists (%s)", err.Error())
 	}
 	if found {
 		t.Errorf("Series doesn't exist so the Exists method should return false, it instead returned true")
@@ -72,12 +92,12 @@ func TestExists(t *testing.T) {
 		Values:    map[string]float32{"subs": 12000, "events": 5634746, "size": 50},
 		TimeStamp: sec,
 	}
-	err = ps.AddSeries(t.Name(), p1, 0)
+	err = testElasticStore.AddSeries(t.Name(), p1, 0)
 	if err != nil {
 		t.Fatalf("Failed to add series to store (%s)", err.Error())
 	}
-	defer ps.DeleteSeries(t.Name())
-	found, err = ps.Exists(t.Name())
+	defer testElasticStore.DeleteSeries(t.Name())
+	found, err = testElasticStore.Exists(t.Name())
 	if err != nil {
 		t.Fatalf("Failed to check if index exists in store (%s)", err.Error())
 	}
@@ -87,11 +107,11 @@ func TestExists(t *testing.T) {
 }
 
 func TestGetLatest(t *testing.T) {
-	ps, err := initTest(t.Name())
+	err := initTest(t.Name())
 	if err != nil {
-		t.Skip("Failed to initialize point store (" + err.Error() + "), assuming there's no elasticsearch")
+		t.Fatalf("Failed to initialize point store (%s)", err.Error())
 	}
-	defer ps.DeleteSeries(t.Name())
+	defer testElasticStore.DeleteSeries(t.Name())
 
 	p2 := Point{
 		Labels:    map[string]string{"env": "test"},
@@ -99,7 +119,7 @@ func TestGetLatest(t *testing.T) {
 		TimeStamp: int64(777808800) + 60,
 	}
 
-	p, err := ps.GetLatest(t.Name(), map[string]string{})
+	p, err := testElasticStore.GetLatest(t.Name(), map[string]string{})
 	if err != nil {
 		t.Fatalf("Failed to get latest point from store (%s)", err.Error())
 	}
@@ -113,13 +133,13 @@ func TestGetLatest(t *testing.T) {
 }
 
 func TestGetLastN(t *testing.T) {
-	ps, err := initTest(t.Name())
+	err := initTest(t.Name())
 	if err != nil {
-		t.Skip("Failed to initialize point store (" + err.Error() + "), assuming there's no elasticsearch")
+		t.Fatalf("Failed to initialize point store (%s)", err.Error())
 	}
-	defer ps.DeleteSeries(t.Name())
+	defer testElasticStore.DeleteSeries(t.Name())
 
-	points, err := ps.GetLastN(t.Name(), map[string]string{}, 4)
+	points, err := testElasticStore.GetLastN(t.Name(), map[string]string{}, 4)
 	if err != nil {
 		t.Fatalf("Failed to get latest 4 points from store (%s)", err.Error())
 	}
@@ -132,13 +152,13 @@ func TestGetLastN(t *testing.T) {
 }
 
 func TestGetCount(t *testing.T) {
-	ps, err := initTest(t.Name())
+	err := initTest(t.Name())
 	if err != nil {
-		t.Skip("Failed to initialize point store (" + err.Error() + "), assuming there's no elasticsearch")
+		t.Fatalf("Failed to initialize point store (%s)", err.Error())
 	}
-	defer ps.DeleteSeries(t.Name())
+	defer testElasticStore.DeleteSeries(t.Name())
 
-	res, err := ps.GetCount(t.Name(), nil)
+	res, err := testElasticStore.GetCount(t.Name(), nil)
 	if err != nil {
 		t.Fatalf("Failed to get series count (%s)", err.Error())
 	}
@@ -148,13 +168,13 @@ func TestGetCount(t *testing.T) {
 }
 
 func TestListSeries(t *testing.T) {
-	ps, err := initTest(t.Name())
+	err := initTest(t.Name())
 	if err != nil {
-		t.Skip("Failed to initialize point store (" + err.Error() + "), assuming there's no elasticsearch")
+		t.Fatalf("Failed to initialize point store (%s)", err.Error())
 	}
-	defer ps.DeleteSeries(t.Name())
+	defer testElasticStore.DeleteSeries(t.Name())
 
-	res, err := ps.ListSeries()
+	res, err := testElasticStore.ListSeries()
 	if err != nil {
 		t.Fatalf("Failed to get series list (%s)", err.Error())
 	}
@@ -177,18 +197,14 @@ func TestListSeries(t *testing.T) {
 }
 
 func TestLoadTestSet(t *testing.T) {
-	ps, err := getTestStore()
+	found, err := testElasticStore.Exists(t.Name())
 	if err != nil {
-		t.Skip("Failed to initialize point store (" + err.Error() + "), assuming there's no elasticsearch")
-	}
-	found, err := ps.Exists(t.Name())
-	if err != nil {
-		t.Skip("Failed to initialize point store (" + err.Error() + "), assuming there's no elasticsearch")
+		t.Fatalf("Failed to check if series exists (%s)", err.Error())
 	}
 	if found {
 		t.Skip("Test set is already present, skipping to avoid overwhelming the test instance")
 	}
-	ea := ps.(*ElasticAdapter)
+	ea := testElasticStore.(*ElasticAdapter)
 
 	err = ea.LoadTestSet(t.Name(), "test/normalization_test_data.txt")
 	if os.IsNotExist(err) {
@@ -197,4 +213,26 @@ func TestLoadTestSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to load test data (%s)", err.Error())
 	}
+}
+
+func TestMain(m *testing.M) {
+	// Setup
+	ctx := context.Background()
+	elastic, url, err := startElastic(ctx)
+	if err != nil {
+		fmt.Printf("Error starting test Elasticsearch container (%s)", err.Error())
+		os.Exit(1)
+	}
+	testElasticStore, err = getTestStore(url)
+	if err != nil {
+		fmt.Printf("Failed to get point store (%s)", err.Error())
+		os.Exit(1)
+	}
+	// Run
+	code := m.Run()
+	// Teardown
+	if err == nil {
+		elastic.Terminate(ctx)
+	}
+	os.Exit(code)
 }

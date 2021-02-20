@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/qvantel/nerd/api/types"
 	"github.com/qvantel/nerd/internal/logger"
-	"github.com/qvantel/nerd/internal/ml"
+	"github.com/qvantel/nerd/internal/nets"
 )
 
 // DeleteNet godoc
@@ -21,7 +21,7 @@ import (
 // @Router /nets/{id} [delete]
 func (h *Handler) DeleteNet(c *gin.Context) {
 	id := c.Param("id")
-	err := h.MLS.Delete(id)
+	err := h.NPS.Delete(id)
 	if err != nil {
 		logger.Error("Failed to delete net "+id, err)
 		c.JSON(http.StatusInternalServerError, types.NewErrorRes("Error deleting net "+id+", see logs for more info"))
@@ -51,15 +51,13 @@ func (h *Handler) Evaluate(c *gin.Context) {
 		return
 	}
 
-	_, err = ml.ID2Type(id)
+	nType, err := nets.ID2Type(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, types.NewErrorRes(err.Error()))
 		return
 	}
 
-	// The net has to exist for this to work so it's more memory efficient to pass the zero value of each type for the
-	// creation params
-	net, err := ml.NewNetwork(id, nil, nil, 0, false, h.MLS, h.Conf)
+	net, err := nets.LoadNetwork(id, nType, h.NPS)
 	if err != nil {
 		logger.Error("Failed to load net "+id, err)
 		c.JSON(http.StatusInternalServerError, types.NewErrorRes("Error loading net, see logs for more info"))
@@ -83,6 +81,7 @@ func (h *Handler) Evaluate(c *gin.Context) {
 // @Produce json
 // @Param offset query int false "Offset to fetch" default(0)
 // @Param limit query int false "How many networks to fetch, the service might return more in some cases" default(10) maximum(50)
+// @Param seriesID query string false "Filter by series ID"
 // @Success 200 {object} types.PagedRes
 // @Failure 400 {object} types.SimpleRes "When the request params are formatted incorrectly"
 // @Failure 500 {object} types.SimpleRes "When there is an error retrieving the list of nets"
@@ -102,7 +101,14 @@ func (h *Handler) ListNets(c *gin.Context) {
 		limit = 50 // Till there is a better solution in place, this is so things won't get too much out of control
 	}
 
-	nets, cursor, err := ml.List(offset, limit, h.MLS)
+	seriesID := c.DefaultQuery("seriesID", c.GetString("seriesID")) // Allows other handler methods to fill in the value
+	if seriesID == "" {
+		seriesID = "*"
+	} else {
+		seriesID += "-????????????????????????????????????????-????????????????????????????????????????-*"
+	}
+
+	nets, cursor, err := nets.List(offset, limit, seriesID, h.NPS)
 	if err != nil {
 		logger.Error("Failed to get list of nets", err)
 		c.JSON(http.StatusInternalServerError, types.NewErrorRes("Error getting list of nets, see logs for more info"))
@@ -112,9 +118,10 @@ func (h *Handler) ListNets(c *gin.Context) {
 }
 
 // Train godoc
-// @Summary Net train endpoint
+// @Summary Net training endpoint
 // @Description Used for training new or existing networks with the points from an existing series
 // @Accept json
+// @Produce json
 // @Success 200 {object} types.SimpleRes
 // @Failure 400 {object} types.SimpleRes "When the request body is formatted incorrectly"
 // @Failure 404 {object} types.SimpleRes "When the provided series ID isn't found"
