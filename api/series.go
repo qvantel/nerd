@@ -99,6 +99,34 @@ func (h *Handler) ListSeries(c *gin.Context) {
 	c.JSON(http.StatusOK, series)
 }
 
+// ListSeriesNets godoc
+// @Summary Alias for retrieving the nets for the given series
+// @Description Will return the list of nets in the system trained with the given series
+// @Produce json
+// @Param id path string true "Series ID"
+// @Param offset query int false "Offset to fetch" default(0)
+// @Param limit query int false "How many networks to fetch, the service might return more in some cases" default(10) maximum(50)
+// @Success 200 {object} types.PagedRes
+// @Failure 400 {object} types.SimpleRes "When the request params are formatted incorrectly"
+// @Failure 500 {object} types.SimpleRes "When there is an error fetching the list of nets"
+// @Router /series/{id}/nets [get]
+func (h *Handler) ListSeriesNets(c *gin.Context) {
+	id := c.Param("id")
+	exists, err := h.PS.Exists(id)
+	if err != nil {
+		logger.Error("Failed to check if series with ID "+id+" exists", err)
+		c.JSON(http.StatusInternalServerError, types.NewErrorRes("Error fetching nets, see logs for more info"))
+		return
+	}
+	if !exists {
+		c.JSON(http.StatusNotFound, types.NewErrorRes("Series with ID "+id+" could not be found"))
+		return
+	}
+
+	c.Set("seriesID", id)
+	h.ListNets(c)
+}
+
 // ProcessEvent godoc
 // @Summary Metric ingestion endpoint
 // @Description Will process the provided metrics update

@@ -21,7 +21,7 @@ type ElasticAdapter struct {
 	client *elastic.Client
 }
 
-// QResponse is used to facilitate parsing elasticsearch point query responses
+// QResponse is used to facilitate parsing Elasticsearch point query responses
 type QResponse struct {
 	Took     int  `json:"took"`
 	TimedOut bool `json:"timed_out"`
@@ -115,7 +115,7 @@ func (ea ElasticAdapter) AddSeries(name string, sample Point, retentionDays int)
 		return err
 	}
 	mapping := `{"mappings":{"date_detection": false, "properties":` + string(jProps) + "}}"
-	logger.Info("Creating new index for series " + name + " with this mapping: " + mapping)
+	logger.Info("Creating new index for series " + name)
 	res, err := ea.client.Indices.Create(index, ea.client.Indices.Create.WithBody(strings.NewReader(mapping)))
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func (ea ElasticAdapter) DeleteSeries(name string) error {
 	return nil
 }
 
-// Exists returns true if an index for the specified series is present in elasticsearch, false if not or in case of
+// Exists returns true if an index for the specified series is present in Elasticsearch, false if not or in case of
 // error (make sure to check if error is nil before looking at the boolean)
 func (ea ElasticAdapter) Exists(name string) (bool, error) {
 	index := prefix + cleanIndex(name)
@@ -219,7 +219,7 @@ func (ea ElasticAdapter) GetLastN(name string, labels map[string]string, n int) 
 	return points, nil
 }
 
-// ListSeries as its name implies, returns a list of all the series that are available in elasticsearch
+// ListSeries as its name implies, returns a list of all the series that are available in Elasticsearch
 func (ea ElasticAdapter) ListSeries() ([]types.BriefSeries, error) {
 	req := esapi.CatIndicesRequest{
 		Index:  []string{prefix + "*"},
@@ -301,11 +301,11 @@ func (ea ElasticAdapter) query(index, stmt string) (QResponse, error) {
 	}
 
 	if len(r.Hits.Hits) <= 3 {
-		logger.Trace("Response from elasticsearch: " + res.String())
+		logger.Trace("Response from Elasticsearch: " + res.String())
 	} else {
 		logger.Trace(
 			fmt.Sprintf(
-				"Response from elasticsearch too big to print in full, status: %d hits: %d",
+				"Response from Elasticsearch too big to print in full, status: %d hits: %d",
 				res.StatusCode,
 				len(r.Hits.Hits),
 			),

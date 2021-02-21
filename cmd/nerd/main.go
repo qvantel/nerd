@@ -11,7 +11,7 @@ import (
 	"github.com/qvantel/nerd/api/types"
 	"github.com/qvantel/nerd/internal/config"
 	"github.com/qvantel/nerd/internal/logger"
-	"github.com/qvantel/nerd/internal/ml"
+	"github.com/qvantel/nerd/internal/nets"
 	"github.com/qvantel/nerd/internal/series"
 	"github.com/segmentio/kafka-go"
 )
@@ -19,6 +19,7 @@ import (
 func main() {
 	// Get config
 	conf, err := config.New()
+
 	// Initialize logger (even if the previous statement returns an error, the logging part should be filled in)
 	logger.Init(*conf)
 	logger.Info("Initializing component")
@@ -31,17 +32,21 @@ func main() {
 
 	// Initialize training service
 	tServ := make(chan types.TrainRequest, 10)
-	g.Add(func() error { return ml.Trainer(tServ, *conf) }, func(error) { close(tServ) })
+	g.Add(func() error { return nets.Trainer(tServ, *conf) }, func(error) { close(tServ) })
 
-	// Initialize consumer
-	consumer := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  conf.Series.Source.Brokers,
-		GroupID:  conf.Series.Source.GroupID,
-		Topic:    conf.Series.Source.Topic,
-		MinBytes: 10e3, // 10KB
-		MaxBytes: 10e6, // 10MB
-	})
-	g.Add(func() error { return series.Consumer(consumer, tServ, *conf) }, func(error) { consumer.Close() })
+	// Conditionally initialize consumer
+	if conf.Series.Source.Brokers != nil {
+		consumer := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:  conf.Series.Source.Brokers,
+			GroupID:  conf.Series.Source.GroupID,
+			Topic:    conf.Series.Source.Topic,
+			MinBytes: 10e3, // 10KB
+			MaxBytes: 10e6, // 10MB
+		})
+		g.Add(func() error { return series.Consumer(consumer, tServ, *conf) }, func(error) { consumer.Close() })
+	} else {
+		logger.Info("No Kafka brokers provided, running in rest-only mode")
+	}
 
 	// Initialize API
 	api, err := api.New(tServ, *conf)

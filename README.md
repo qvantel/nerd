@@ -1,6 +1,7 @@
 # nerd
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/qvantel/nerd)](https://goreportcard.com/report/github.com/qvantel/nerd)
+[![SonarCloud Coverage](https://sonarcloud.io/api/project_badges/measure?project=qvantel_nerd&metric=coverage)](https://sonarcloud.io/component_measures/metric/coverage/list?id=qvantel_nerd)
 [![Build status](https://img.shields.io/docker/cloud/build/qvantel/nerd.svg)](https://hub.docker.com/r/qvantel/nerd/builds)
 [![Docker pulls](https://img.shields.io/docker/pulls/qvantel/nerd.svg)](https://hub.docker.com/r/qvantel/nerd)
 [![Release](https://img.shields.io/github/v/release/qvantel/nerd.svg)](https://github.com/qvantel/nerd/releases/latest)
@@ -27,46 +28,18 @@ services to be smarter without requiring a huge effort.
 
 If you just want to try nerd out and see what it can do, here is a quick guide for running a test setup with containers:
 
-1. Start a Zookeeper instance (nerd currently requires [Kafka](https://kafka.apache.org/documentation/#gettingStarted)
-which in turn requires [Zookeeper](https://zookeeper.apache.org/)):
-    ```bash
-    docker run -d --restart=unless-stopped \
-      --log-driver json-file \
-      -p 2181:2181 \
-      --name zookeeper zookeeper:3.6.2
-    ```
-1. Start a Kafka broker:
-    ```bash
-    docker run -d --restart=unless-stopped \
-      --log-driver json-file \
-      -p 7203:7203 -p 7204:7204 -p 9092:9092 \
-      -e "KAFKA_LISTENERS=PLAINTEXT://:9092" \
-      -e "KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://host.docker.internal:9092" \
-      -e "KAFKA_DEFAULT_REPLICATION_FACTOR=1" \
-      -e "KAFKA_DELETE_TOPIC_ENABLE=true" \
-      -e "KAFKA_ZOOKEEPER_CONNECT=host.docker.internal:2181" \
-      -e "KAFKA_BROKER_ID=1" \
-      -e "KAFKA_HEAP_OPTS=-Xmx4G -Xms4G" \
-      -e "ZOOKEEPER_SESSION_TIMEOUT_MS=30000" \
-      --name kafka wurstmeister/kafka:2.12-2.1.1
-    ```
-    If running on linux, you might need to include the following in the docker run command (anywhere between
-    `docker run` and the image)(same for the next steps):
-    ```bash
-      --add-host host.docker.internal:host-gateway
-    ```
 1. Start a nerd instance:
-    > Here we're going to run nerd using the filesystem to store the neural net's parameters and the series' points, if
+    > Here we're going to run nerd using the filesystem to store its data and the REST API to send it updates. If
     > you'd like a more performant setup, refer to the ["Requirements"](#requirements) section for instructions on how
-    > to setup [Redis](https://redis.io/topics/introduction) and [Elasticsearch](https://www.elastic.co/elasticsearch/)
+    > to setup [Redis](https://redis.io/topics/introduction), [Elasticsearch](https://www.elastic.co/elasticsearch/),
+    > [Kafka](https://kafka.apache.org/documentation/#gettingStarted) and [Zookeeper](https://zookeeper.apache.org/)
     > instead.
     ```bash
     docker run -d --restart=unless-stopped -m 64m \
       --log-opt max-size=5m --log-driver=json-file \
       -p 5400:5400 \
       -e "LOG_LEVEL=INFO" \
-      -e "SD_KAFKA=host.docker.internal:9092" \
-      --name nerd qvantel/nerd:0.3.0
+      --name nerd qvantel/nerd:0.4.0
     ```
 1. Check that everything is up and running by going to http://localhost:5400 with your browser (if you see a welcome
 message, everything is good)
@@ -81,23 +54,37 @@ message, everything is good)
         sort -R -o shuffled-dataset.txt data_banknote_authentication.txt
         ```
     1. Load the test data using the built-in file collector:
-        > If you want, you can add `variance,skewness,curtosis,entropy,class` to the beginning of `shuffled-dataset.txt`
-        > and use the `-headers` variable to properly label the values, otherwise names will be auto-generated
-        ```bash
-       docker run -it --rm \
-         -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
-         --entrypoint=/opt/docker/fcollect qvantel/nerd:0.3.0 \
-           -batch 50 \
-           -in 4 \
-           -margin 0.4999999 \
-           -producer "kafka" \
-           -sep "," \
-           -series "banknote-forgery-detection" \
-           -targets "host.docker.internal:9092" \
-           dataset
-        ```
+        > If you want, you can add `variance,skewness,kurtosis,entropy,class` to the beginning of `shuffled-dataset.txt`
+        > and use the `-headers` flag to properly label the values, otherwise names will be auto-generated
+        1. On Linux (or WSL):
+            ```bash
+            docker run -it --rm \
+              --add-host host.docker.internal:host-gateway \
+              -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
+              --entrypoint=/opt/docker/fcollect qvantel/nerd:0.4.0 \
+                -batch 50 \
+                -in 4 \
+                -margin 0.4999999 \
+                -sep "," \
+                -series "banknote-forgery-detection" \
+                -targets "http://host.docker.internal:5400" \
+                dataset
+            ```
+        1. On MacOS:
+            ```bash
+            docker run -it --rm \
+              -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
+              --entrypoint=/opt/docker/fcollect qvantel/nerd:0.4.0 \
+                -batch 50 \
+                -in 4 \
+                -margin 0.4999999 \
+                -sep "," \
+                -series "banknote-forgery-detection" \
+                -targets "http://host.docker.internal:5400" \
+                dataset
+            ```
     1. Send a training request:
-        > If you opted to add the headers in the previous step, use `["variance","skewness","curtosis","entropy"]` as
+        > If you opted to add the headers in the previous step, use `["variance","skewness","kurtosis","entropy"]` as
         > inputs and `["class"]` as the output instead of the values bellow
         ```bash
         curl -XPOST -H "Content-Type: application/json" --data @- \
@@ -111,13 +98,15 @@ message, everything is good)
         }
         EOF
         ```
-    1. Check out the resulting net by going to http://localhost:5400/api/v1/nets
+    1. Check out the resulting net by going to http://localhost:5400/api/v1/series/banknote-forgery-detection/nets
 1. Use the network:
     1. With an authentic note (the output should be closer to 0 than 1)
         ```bash
+        # (with headers) NET=banknote-forgery-detection-f6217c7e74da371fea775c5a0b11b5b36d9438ed-8d767bf5b72373d12f0efd4406677e9ed076f592-mlp
         NET=banknote-forgery-detection-8921e4a37dabacc06fec3318e908d9fe4eb75b46-7804b6fc74b5c0a74cc0820420fa0edf6b1a117c-mlp
         ENDPOINT=localhost:5400/api/v1/nets/$NET/evaluate
-
+        ```
+        ```bash
         curl -XPOST -H"Content-Type: application/json" --data @- \
             $ENDPOINT <<EOF
         {
@@ -140,9 +129,6 @@ message, everything is good)
         }
         EOF
         ```
-    > Curious about how to programmatically get the id? It can be calculated like so:
-    > `seriesID + "-" + sha1(inputs) + "-" + sha1(outputs) + "-" + netType` (try it out on go playground
-    > [here](https://play.golang.org/p/fmLNLuJhvT5))
 
 ## Requirements
 
@@ -150,12 +136,33 @@ This service has the following dependencies:
 
 ### Kafka
 
-Even though metrics updates can be sent through the rest API, it's better to use a service like Kafka (maybe nats in the
-future) to decouple that interaction and benefit from built-in load balancing. When producing metrics updates, the
-series ID should be used by the partitioning strategy so that we have a smaller chance of triggering training for the
+Even though nerd can be used without it (sending updates through the REST API), it's better to use a service like Kafka
+(maybe nats in the future) to decouple that interaction and benefit from built-in load balancing. When producing metrics
+updates, the series ID should be used by the partitioning strategy to reduce the chance of triggering training for the
 same series twice.
 
-For testing, the Zookeeper and Kafka docker run commands from the ["Quick Start"](#quick-start) section can be used.
+For testing, the following commands can be used to start Zookeeper and Kafka:
+> If running on Linux, include `--add-host host.docker.internal:host-gateway` in the Kafka docker run command (anywhere
+> between `docker run` and the image)
+```bash
+docker run -d --restart=unless-stopped \
+  --log-driver json-file \
+  -p 2181:2181 \
+  --name zookeeper zookeeper:3.6.2
+
+docker run -d --restart=unless-stopped \
+  --log-driver json-file \
+  -p 7203:7203 -p 7204:7204 -p 9092:9092 \
+  -e "KAFKA_LISTENERS=PLAINTEXT://:9092" \
+  -e "KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://host.docker.internal:9092" \
+  -e "KAFKA_DEFAULT_REPLICATION_FACTOR=1" \
+  -e "KAFKA_DELETE_TOPIC_ENABLE=true" \
+  -e "KAFKA_ZOOKEEPER_CONNECT=host.docker.internal:2181" \
+  -e "KAFKA_BROKER_ID=1" \
+  -e "KAFKA_HEAP_OPTS=-Xmx4G -Xms4G" \
+  -e "ZOOKEEPER_SESSION_TIMEOUT_MS=30000" \
+  --name kafka wurstmeister/kafka:2.12-2.1.1
+```
 
 ### A Network Parameter Store
 
@@ -163,16 +170,16 @@ Currently, Redis (and the filesystem but that should only be used for testing).
 
 When using Redis with Sentinel, the `ML_STORE_PARAMS` variable should be used (instead of `SD_REDIS`) like so:
 ```bash
-  -e 'ML_STORE_PARAMS={"group": "<master>", "URLs": "<sen1-host>:<sen1-port>,...,<senN-host>:<senN-port>"}'
+  -e 'ML_STORE_PARAMS={"group": "<group-name>", "URLs": "<sen1-host>:<sen1-port>,...,<senN-host>:<senN-port>"}'
 ```
-Where `group` contains the master group name and `URLs` the comma-separated list of Sentinel instance host:port pairs.
+Where `group` contains the replica group name and `URLs` the comma-separated list of Sentinel instance host:port pairs.
 
 For testing, the following command can be used to start up a Redis replica:
 ```bash
 docker run -d \
   --log-driver json-file \
   -p 6379:6379 \
-  --name redis redis:6.0.9-alpine
+  --name redis redis:6.0.10-alpine3.13
 ```
 
 ### A Point Store
@@ -201,9 +208,10 @@ docker run -d \
 
 ## Deployment
 
-For a simple deployment, the following command can be used to start up a nerd instance that'll use Redis and
+For a simple deployment, the following command can be used to start up a nerd instance that'll use Kafka, Redis and
 Elasticsearch (changing the ip:ports for those of the corresponding services in your setup):
-
+> If running on Linux, include `--add-host host.docker.internal:host-gateway` in the docker run command (anywhere
+> between `docker run` and the image) if you're going to use it as is
 ```bash
 docker run -d --restart=unless-stopped -m 64m \
   --log-opt max-size=5m --log-driver=json-file \
@@ -214,49 +222,49 @@ docker run -d --restart=unless-stopped -m 64m \
   -e "SD_KAFKA=host.docker.internal:9092" \
   -e "SD_REDIS=host.docker.internal:6379" \
   -e "ML_STORE_TYPE=redis" \
-  --name nerd qvantel/nerd:0.3.0
+  --name nerd qvantel/nerd:0.4.0
 ```
 > You can find all available tags [here](https://hub.docker.com/r/qvantel/nerd/tags)
 
 The following environment variables are available:
 
-| Variable                  | Required | Default                                | Description                                                                                                                                                                               |
-|---------------------------|----------|----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| LOG_LEVEL                 | NO       | INFO                                   | Application/root log level, supported values are `TRACE`, `DEBUG`, `INFO`, `WARNING` and `ERROR`                                                                                          |
-| MARATHON_APP_DOCKER_IMAGE | NO       | qvantel/nerd:$VERSION?                 | Included in the `artifact_id` field of log messages, gets filled in automatically when ran through Marathon                                                                               |
-| SERVICE_NAME              | NO       | nerd                                   | Included in the `service_name` field of the log messages                                                                                                                                  |
-| SERVICE_5400_NAME         | NO       | $SERVICE_NAME                          | Included in the `service_name` field of the log messages. If set, overrides whatever is defined in `$SERVICE_NAME`                                                                        |
-| ML_ACT_FUNC               | NO       | bipolar-sigmoid                        | Activation function for the neural nets. Currently, only `bipolar-sigmoid` is supported                                                                                                   |
-| ML_ALPHA                  | NO       | 0.05                                   | Learning rate for the neural nets, a low number (<= 0.1) is recommended. In the future, nerd will automatically test a few values and choose the one with the highest accuracy            |
-| ML_HLAYERS                | NO       | 1                                      | Number of hidden layers for MLP nets. Some series might benefit from more than one. In the future, nerd will automatically test a few values and choose the one with the highest accuracy |
-| ML_NET                    | NO       | mlp                                    | Default net type to use. Currently, only multilayer perceptron nets are supported (`mlp`)                                                                                                 |
-| ML_MAX_EPOCH              | NO       | 1000                                   | Maximum number of times the net should iterate over the training set if the tolerance is never met                                                                                        |
-| ML_STORE_TYPE             | NO*      | file                                   | Storage adapter that should be used for keeping network parameters. Currently supported values are `file` (for testing) and `redis`                                                       |
-| ML_STORE_PARAMS           | NO       | {"Path": "."}                          | Settings for the net params storage adapter                                                                                                                                               |
-| SD_REDIS                  | NO       |                                        | Redis replica host:port. Serves as a shortcut for filling in `$ML_STORE_PARAMS` when selecting the `redis` adapter                                                                        |
-| ML_TEST_SET               | NO       | 0.4                                    | Fraction of the patterns provided to the training function that should be put aside for testing the accuracy of the net after training (0.4 is usually a good value)                      |
-| ML_TOLERANCE              | NO       | 0.1                                    | Mean squared error change rate at which the training should stop to avoid overfitting                                                                                                     |
-| SERIES_FAIL_LIMIT         | NO       | 5                                      | Number of **subsequent** processing failures in the consumer service at which the instance should crash                                                                                   |
-| SD_KAFKA                  | YES      |                                        | Comma separated list of Kafka broker host:port pairs                                                                                                                                      |
-| SERIES_KAFKA_GROUP        | NO       | nerd                                   | Consumer group ID that the instance should use                                                                                                                                            |
-| SERIES_KAFKA_TOPIC        | NO       | nerd-events                            | Topic from which metrics updates will be consumed                                                                                                                                         |
-| SERIES_STORE_TYPE         | NO*      | file                                   | Storage adapter that should be used for storing time series. Currently supported values are `file` (for testing) and `elasticsearch`                                                      |
-| SERIES_STORE_PARAMS       | NO       | {"Path": "."}                          | Settings for the time series storage adapter                                                                                                                                              |
-| SERIES_STORE_PASS         | NO       | ""                                     | Password for the selected series store (if applicable)                                                                                                                                    |
-| SERIES_STORE_USER         | NO       | ""                                     | User for the selected series store (if applicable)                                                                                                                                        |
-| SD_ELASTICSEARCH          | NO       |                                        | Elasticsearch protocol://host:port. Serves as a shortcut for filling in `$SERIES_STORE_PARAMS` when selecting the `elasticsearch` adapter                                                 |
+| Variable                  | Required | Default                                | Description                                                                                                                                                                            |
+|---------------------------|----------|----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| LOG_LEVEL                 | NO       | INFO                                   | Application/root log level, supported values are `TRACE`, `DEBUG`, `INFO`, `WARNING` and `ERROR`                                                                                       |
+| MARATHON_APP_DOCKER_IMAGE | NO       | qvantel/nerd:$VERSION?                 | Included in the `artifact_id` field of log messages, gets filled in automatically when ran through Marathon                                                                            |
+| SERVICE_NAME              | NO       | nerd                                   | Included in the `service_name` field of the log messages                                                                                                                               |
+| SERVICE_5400_NAME         | NO       | $SERVICE_NAME                          | Included in the `service_name` field of the log messages. If set, overrides whatever is defined in `$SERVICE_NAME`                                                                     |
+| ML_GENS                   | NO       | 5                                      | Number of cycles to run the genetic algorithm for in search of the optimal net params                                                                                                  |
+| ML_MIN_HLAYERS            | NO       | 1                                      | Minimum starting number of hidden layers (the genetic algorithm can go down to 1)                                                                                                      |
+| ML_MAX_HLAYERS            | NO       | 5                                      | Maximum starting number of hidden layers (the genetic algorithm can surpass it)                                                                                                        |
+| ML_MAX_EPOCH              | NO       | 1000                                   | Maximum number of times the net should iterate over the training set if the tolerance is never met                                                                                     |
+| ML_STORE_TYPE             | NO*      | file                                   | Storage adapter that should be used for keeping network parameters. Currently supported values are `file` (for testing) and `redis`                                                    |
+| ML_STORE_PARAMS           | NO       | {"Path": "."}                          | Settings for the net params storage adapter                                                                                                                                            |
+| SD_REDIS                  | NO       |                                        | Redis replica host:port. Serves as a shortcut for filling in `$ML_STORE_PARAMS` when selecting the `redis` adapter                                                                     |
+| ML_TEST_SET               | NO       | 0.4                                    | Fraction of the patterns provided to the training function that should be put aside for testing the accuracy of the net after training (0.4 is usually a good value)                   |
+| ML_TOLERANCE              | NO       | 0.1                                    | Mean squared error change rate at which the training should stop to avoid overfitting                                                                                                  |
+| ML_VARS                   | NO       | 6                                      | Number of different network configurations to evaluate in each generation of the genetic algorithm (4 minimum)                                                                         |
+| SERIES_FAIL_LIMIT         | NO       | 5                                      | Number of **subsequent** processing failures in the consumer service at which the instance should crash (not used when running in "rest-only" mode)                                    |
+| SD_KAFKA                  | NO*      |                                        | Comma separated list of Kafka broker host:port pairs. When empty, nerd will run in "rest-only" mode (only recommended for testing or when running in envs with very limited resources) |
+| SERIES_KAFKA_GROUP        | NO       | nerd                                   | Consumer group ID that the instance should use (not used when running in "rest-only" mode)                                                                                             |
+| SERIES_KAFKA_TOPIC        | NO       | nerd-events                            | Topic from which metrics updates will be consumed (not used when running in "rest-only" mode)                                                                                          |
+| SERIES_STORE_TYPE         | NO*      | file                                   | Storage adapter that should be used for storing time series. Currently supported values are `file` (for testing) and `elasticsearch`                                                   |
+| SERIES_STORE_PARAMS       | NO       | {"Path": "."}                          | Settings for the time series storage adapter                                                                                                                                           |
+| SERIES_STORE_PASS         | NO       | ""                                     | Password for the selected series store (if applicable)                                                                                                                                 |
+| SERIES_STORE_USER         | NO       | ""                                     | User for the selected series store (if applicable)                                                                                                                                     |
+| SD_ELASTICSEARCH          | NO       |                                        | Elasticsearch protocol://host:port. Serves as a shortcut for filling in `$SERIES_STORE_PARAMS` when selecting the `elasticsearch` adapter                                              |
 > \* While not strictly required for operation, the default value should be overridden for anything other than testing and even then, not all testing should be done with those values
 
 ## Use
 
-Once the service has been deployed, it is possible to interact with it either through Kafka or the rest API.
+Once the service has been deployed, it is possible to interact with it either through Kafka or the REST API.
 
 ### Collectors
 
 These are lightweight components that can be used to import data from other services into nerd. To facilitate their
-development, nerd exposes the `github.com/qvantel/nerd/api/types` and `github.com/qvantel/nerd/pkg/producer` modules
-which include the types used by the rest and Kafka interfaces as well as ready-made methods for producing messages to
-them.
+development, nerd exposes the [github.com/qvantel/nerd/api/types](https://pkg.go.dev/github.com/qvantel/nerd/api/types)
+and [github.com/qvantel/nerd/pkg/producer](https://pkg.go.dev/github.com/qvantel/nerd/pkg/producer) modules which
+include the types used by the REST and Kafka interfaces as well as ready-made methods for producing messages to them.
 
 #### File
 At the time of writing, the only public collector is the one built into this project under the fcollect command, which
@@ -267,7 +275,7 @@ after the image will be passed to fcollect as an argument):
 docker run -it --rm \
   -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
   --entrypoint=/opt/docker/fcollect \
-  --name fcollect qvantel/nerd:0.3.0 -series "demo" -targets "http://host.docker.internal:5400" dataset
+  --name fcollect qvantel/nerd:0.4.0 -series "demo" -producer "kafka" -targets "host.docker.internal:9092" -sep "," dataset
 ```
 Where the `-series` and `-targets` flags as well as the path to the dataset (full or relative to `/opt/docker` inside
 the container) are required. Additionally, the following flags can be used to change the behaviour of the tool:
@@ -383,9 +391,8 @@ Once a net has been trained, it can be exploited through the `/api/v1/nets/{id}/
 contains the address of the nerd service and `$ID` the ID of the network):
 
 > NOTE: The network ID is different from that of the series it comes from, as multiple nets could be (and are) created
-> from a single series. You can obtain one from another though, like this: seriesID-sha1(inputs)-sha1(outputs)-netType
-> where inputs is the alphabetically ordered concatenation of the inputs and the same goes for outputs (when it's an
-> automatically created net, you will get one per output, so typically you will just need to hash one output).
+> from a single series. The nets for a given series can be found through the `/api/v1/nets` endpoint (by using the
+> `seriesID` query param) or the `/api/v1/series/{id}/nets` endpoint.
 
 ```bash
 curl -XPOST -H"Content-Type: application/json" --data @- \
@@ -412,130 +419,71 @@ Sample response:
 
 ### Listing Available Entities
 
-- Nets:
+- **Nets:**
   - Endpoint: `/api/v1/nets`
   - Method: GET
   - Params:
     - offset: Offset to fetch, 0 by default
     - limit: How many networks to fetch, the service might return more in some cases, 10 by default, 50 maximum
+    - seriesID: Filter by series ID (`/api/v1/series/{id}/nets` can be used to pass the ID as a path param instead)
   - Returns: A `types.PagedRes` object and a 200 if successful, a `types.SimpleRes` object and a 400 or 500 if not (depending on the error)
   - Sample response:
 ```json
 {
-    "last": true,
-    "next": 0,
-    "results": [
-        {
-            "accuracy": 0.953405,
-            "averages": {
-                "value-0": 4461.905,
-                "value-1": 0.032476295,
-                "value-10": 0.35714287,
-                "value-2": 0.032452486,
-                "value-3": 29.095238,
-                "value-4": 0.6552371,
-                "value-5": 0.036119178,
-                "value-6": 0.034857206,
-                "value-7": 0.028881064,
-                "value-8": 1664.2858,
-                "value-9": 0.64285713
-            },
-            "deviations": {
-                "value-0": 2755.941,
-                "value-1": 0.03142687,
-                "value-10": 0.47972888,
-                "value-2": 0.030137872,
-                "value-3": 29.314167,
-                "value-4": 0.45890477,
-                "value-5": 0.036751248,
-                "value-6": 0.02476096,
-                "value-7": 0.031203939,
-                "value-8": 1788.0956,
-                "value-9": 0.47972888
-            },
-            "errMargin": 0.5,
-            "id": "testloadtestset-4821586b0eb056ef9bc6913b1e19b800a4b6c563-6b25e7592c075a7c638b2aabda1cc1c71442f4cb-mlp",
-            "inputs": [
-                "value-0",
-                "value-1",
-                "value-2",
-                "value-3",
-                "value-4",
-                "value-5",
-                "value-6",
-                "value-7",
-                "value-8"
-            ],
-            "outputs": [
-                "value-9"
-            ],
-            "type": "mlp"
-        },
-        {
-            "accuracy": 0.94623655,
-            "averages": {
-                "value-0": 4390.476,
-                "value-1": 0.031095339,
-                "value-10": 0.34761906,
-                "value-2": 0.031690583,
-                "value-3": 28.428572,
-                "value-4": 0.6271415,
-                "value-5": 0.035738226,
-                "value-6": 0.03452388,
-                "value-7": 0.028071541,
-                "value-8": 1604.762,
-                "value-9": 0.65238094
-            },
-            "deviations": {
-                "value-0": 2791.8901,
-                "value-1": 0.030394992,
-                "value-10": 0.4767823,
-                "value-2": 0.029760389,
-                "value-3": 29.065111,
-                "value-4": 0.43468502,
-                "value-5": 0.03649372,
-                "value-6": 0.02479531,
-                "value-7": 0.030412318,
-                "value-8": 1741.2527,
-                "value-9": 0.4767823
-            },
-            "errMargin": 0.5,
-            "id": "testloadtestset-4821586b0eb056ef9bc6913b1e19b800a4b6c563-025d516f7acf54b430a00be752f9e4c4e2d1eee7-mlp",
-            "inputs": [
-                "value-0",
-                "value-1",
-                "value-2",
-                "value-3",
-                "value-4",
-                "value-5",
-                "value-6",
-                "value-7",
-                "value-8"
-            ],
-            "outputs": [
-                "value-10"
-            ],
-            "type": "mlp"
-        }
-    ]
+  "last": true,
+  "next": 0,
+  "results": [
+    {
+      "accuracy": 0.9908759,
+      "activationFunc": "bipolar-sigmoid",
+      "averages": {
+        "class": 0.42718446,
+        "entropy": -1.2009263,
+        "kurtosis": 1.334538,
+        "skewness": 2.1060672,
+        "variance": 0.47604737
+      },
+      "deviations": {
+        "class": 0.49497,
+        "entropy": 2.1664677,
+        "kurtosis": 4.235366,
+        "skewness": 5.8205276,
+        "variance": 2.8741868
+      },
+      "errMargin": 0.4999999,
+      "hLayers": 1,
+      "id": "banknote-forgery-detection-f6217c7e74da371fea775c5a0b11b5b36d9438ed-8d767bf5b72373d12f0efd4406677e9ed076f592-mlp",
+      "inputs": [
+        "entropy",
+        "kurtosis",
+        "skewness",
+        "variance"
+      ],
+      "learningRate": 0.092,
+      "outputs": [
+        "class"
+      ],
+      "type": "mlp"
+    }
+  ]
 }
 ```
 
-- Series:
+- **Series:**
   - Endpoint: `/api/v1/series`
   - Method: GET
   - Returns: An array of `types.BriefSeries` objects and a 200 if successful, a `types.SimpleRes` object and a 500 if not
   - Sample response:
 ```json
 [
-    {
-        "name": "testloadtestset",
-        "count": 699
-    }
+  {
+    "name": "banknote-forgery-detection",
+    "count": 1372
+  }
 ]
 ```
 
-- Points:
+- **Points:**
   - Endpoint: `/api/v1/series/{id}/points`
   - Method: GET
   - Params:
@@ -544,53 +492,55 @@ Sample response:
   - Sample response:
 ```json
 [
-    {
-        "@timestamp": 777809498,
-        "value-0": 1000,
-        "value-1": 0.01,
-        "value-10": 0,
-        "value-2": 0.01,
-        "value-3": 10,
-        "value-4": 0.4,
-        "value-5": 0.01,
-        "value-6": 0.02,
-        "value-7": 0.01,
-        "value-8": 1000,
-        "value-9": 1
-    },
-    {
-        "@timestamp": 777809497,
-        "value-0": 5000,
-        "value-1": 0.07,
-        "value-10": 1,
-        "value-2": 0.1,
-        "value-3": 100,
-        "value-4": 1,
-        "value-5": 0.1,
-        "value-6": 0.1,
-        "value-7": 0.1,
-        "value-8": 1000,
-        "value-9": 0
-    }
+  {
+    "@timestamp": 1612706310,
+    "class": 0,
+    "kurtosis": 2.0938,
+    "entropy": 0.20085,
+    "skewness": 2.599,
+    "stage": "test",
+    "subject": "dataset",
+    "variance": 2.5367
+  },
+  {
+    "@timestamp": 1612706309,
+    "class": 0,
+    "kurtosis": -2.4089,
+    "entropy": -0.056479,
+    "skewness": 5.5788,
+    "stage": "test",
+    "subject": "dataset",
+    "variance": 5.7823
+  }
 ]
 ```
 
 ### Health
 
-- Startup probe: `/api/v1/health/startup`
+- **Startup probe:**
+  - Endpoint: `/api/v1/health/startup`
+  - Method: GET
+  - Returns: A `types.SimpleRes` object and a 200 if successful
+  - Sample response:
+```json
+{
+  "result": "ok",
+  "message": "The API is up"
+}
+```
 
 ## Testing
-Run unit tests locally:
 
-> NOTE: If an Elasticsearch instance is running at http://localhost:9200 when the tests are run, they will load a
-> test series into it
+> NOTE: The tests automatically spin up Docker containers for dependencies like Elasticsearch and Redis so the host must
+> have it installed and the user running them must have the necessary rights
 
-- Using Go (fastest):
-```bash
-go test -cover ./...
-```
+- Unit tests:
+  ```bash
+  go test -cover ./...
+  ```
 
-- Using containers (slower but doesn't require to have go installed)
-```bash
-./unit-test.sh
-```
+- Functional tests:
+  > These can take a while as they build the nerd image from the Dockerfile
+  ```bash
+  go test -v --tags=functional github.com/qvantel/nerd/cmd
+  ```

@@ -8,14 +8,16 @@ import (
 	"github.com/qvantel/nerd/api/types"
 	"github.com/qvantel/nerd/internal/config"
 	"github.com/qvantel/nerd/internal/logger"
-	"github.com/qvantel/nerd/internal/ml/paramstores"
+	"github.com/qvantel/nerd/internal/nets/paramstores"
 	"github.com/qvantel/nerd/internal/series/pointstores"
 )
+
+const base = "/api"
 
 // Handler holds the API's state
 type Handler struct {
 	Conf   config.Config
-	MLS    paramstores.NetParamStore
+	NPS    paramstores.NetParamStore
 	PS     pointstores.PointStore
 	Router *gin.Engine
 	TServ  chan types.TrainRequest
@@ -30,10 +32,10 @@ type Handler struct {
 
 // New initializes the Gin rest api and returns a handler
 func New(tServ chan types.TrainRequest, conf config.Config) (*Handler, error) {
-	// Set up ML store
-	mls, err := paramstores.New(conf)
+	// Set up net param store
+	nps, err := paramstores.New(conf)
 	if err != nil {
-		logger.Error("Failed to initialize ML store for the API", err)
+		logger.Error("Failed to initialize net param store for the API", err)
 		return nil, err
 	}
 
@@ -48,7 +50,7 @@ func New(tServ chan types.TrainRequest, conf config.Config) (*Handler, error) {
 
 	h := Handler{
 		Conf:   conf,
-		MLS:    mls,
+		NPS:    nps,
 		PS:     ps,
 		Router: router,
 		TServ:  tServ,
@@ -60,7 +62,7 @@ func New(tServ chan types.TrainRequest, conf config.Config) (*Handler, error) {
 
 	// Routes
 	router.GET("/", h.ShowWelcomeMsg)
-	v1 := router.Group("/api/v1")
+	v1 := router.Group(base + "/v1")
 	{
 		health := v1.Group("/health")
 		{
@@ -77,6 +79,7 @@ func New(tServ chan types.TrainRequest, conf config.Config) (*Handler, error) {
 		{
 			series.GET("", h.ListSeries)
 			series.DELETE("/:id", h.DeleteSeries)
+			series.GET("/:id/nets", h.ListSeriesNets)
 			series.GET("/:id/points", h.ListPoints)
 			series.POST("/process", h.ProcessEvent)
 		}

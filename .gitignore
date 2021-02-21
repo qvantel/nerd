@@ -5,6 +5,5 @@
 .DS_Store
 
 # Other
+coverage.out
 .vscode
-unit-tests.xml
-test-reports

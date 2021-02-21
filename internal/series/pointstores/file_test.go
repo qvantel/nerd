@@ -12,7 +12,7 @@ func getTestFileStore() (PointStore, error) {
 	json.Unmarshal([]byte(`{"Path": "."}`), &storeParams)
 	conf := config.Config{
 		Series: config.SeriesParams{
-			StoreType:   "file",
+			StoreType:   config.FileSeriesStore,
 			StoreParams: storeParams,
 		},
 	}

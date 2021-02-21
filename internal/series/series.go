@@ -12,7 +12,7 @@ import (
 	"github.com/qvantel/nerd/api/types"
 	"github.com/qvantel/nerd/internal/config"
 	"github.com/qvantel/nerd/internal/logger"
-	"github.com/qvantel/nerd/internal/ml"
+	"github.com/qvantel/nerd/internal/nets"
 	"github.com/qvantel/nerd/internal/series/pointstores"
 )
 
@@ -72,10 +72,10 @@ func ProcessUpdate(event event.Event, ps pointstores.PointStore, tServ chan type
 			}
 		}
 		// Queue up training if enough points are available
-		req, _ := ml.Required(len(inputs), 1, conf.ML.HLayers, conf) // 1 because we'll be creating individual nets for each output
+		req := nets.Required(len(inputs), 1, conf.ML.MaxHLayers, conf) // 1 because we'll be creating individual nets for each output
 		logger.Trace(fmt.Sprintf("Got %d points for %s, %d required for training", count+len(mu.Points), mu.SeriesID, req))
 		if count < req && count+len(mu.Points) >= req {
-			if conf.Series.StoreType == "elasticsearch" {
+			if conf.Series.StoreType == config.ElasticsearchSeriesStore {
 				// Pause for refresh, otherwise the points might not be readable yet and/or the next call might see the
 				// old count again
 				time.Sleep(1 * time.Second)

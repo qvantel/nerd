@@ -1,6 +1,25 @@
 // Package types contains most of the objects that the API reads or writes
 package types
 
+const (
+	BipolarSigmoid = "bipolar-sigmoid"
+
+	MultilayerPerceptron = "mlp"
+)
+
+var activationFuncs = []string{BipolarSigmoid}
+var nets = []string{MultilayerPerceptron}
+
+// ActivationFuncs returns the list of supported neuron activation functions
+func ActivationFuncs() []string {
+	return activationFuncs
+}
+
+// Nets returns the list of supported network types
+func Nets() []string {
+	return nets
+}
+
 // PagedRes is a wrapper for a paged response where next can be provided as offset for the subsequent request and last
 // can be used to determine when there is nothing left to read
 type PagedRes struct {
@@ -28,14 +47,17 @@ func NewErrorRes(msg string) *SimpleRes {
 
 // BriefNet is a lightweight and standardized representation for neural network parameters
 type BriefNet struct {
-	Accuracy   float32            `json:"accuracy" example:"0.9"` // Fraction of patterns that were predicted correctly during testing
-	Averages   map[string]float32 `json:"averages"`               // Averages of each value in the patterns that were used for training
-	Deviations map[string]float32 `json:"deviations"`             // Standard deviation of each value in the patterns that were used for training
-	ErrMargin  float32            `json:"errMargin"`              // Maximum difference between the expected and produced result to still be considered correct during testing
-	ID         string             `json:"id"`
-	Inputs     []string           `json:"inputs"`
-	Outputs    []string           `json:"outputs"`
-	Type       string             `json:"type"`
+	Accuracy       float32            `json:"accuracy" example:"0.9"` // Fraction of patterns that were predicted correctly during testing
+	ActivationFunc string             `json:"activationFunc"`         // Function used to calculate the output of a neuron based on its inputs
+	Averages       map[string]float32 `json:"averages"`               // Averages of each value in the patterns that were used for training
+	Deviations     map[string]float32 `json:"deviations"`             // Standard deviation of each value in the patterns that were used for training
+	ErrMargin      float32            `json:"errMargin"`              // Maximum difference between the expected and produced result to still be considered correct during testing
+	HLayers        int                `json:"hLayers"`                // Number of hidden layers
+	ID             string             `json:"id"`
+	Inputs         []string           `json:"inputs"`
+	LearningRate   float32            `json:"learningRate"` // How much new inputs altered the network during training
+	Outputs        []string           `json:"outputs"`
+	Type           string             `json:"type"`
 }
 
 // TrainRequest as its name implies, is used to ask the training service to create or update a net
