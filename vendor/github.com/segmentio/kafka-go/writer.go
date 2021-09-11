@@ -135,12 +135,15 @@ type Writer struct {
 	//  RequireOne  (1)  wait for the leader to acknowledge the writes
 	//  RequireAll  (-1) wait for the full ISR to acknowledge the writes
 	//
+	// Defaults to RequireNone.
 	RequiredAcks RequiredAcks
 
 	// Setting this flag to true causes the WriteMessages method to never block.
 	// It also means that errors are ignored since the caller will not receive
 	// the returned value. Use this only if you don't care about guarantees of
 	// whether the messages were written to kafka.
+	//
+	// Defaults to false.
 	Async bool
 
 	// An optional function called when the writer succeeds or fails the
@@ -282,7 +285,7 @@ type WriterConfig struct {
 	// transport.
 	RebalanceInterval time.Duration
 
-	// DEPRECACTED: in versions prior to 0.4, the writer used to manage connections
+	// DEPRECATED: in versions prior to 0.4, the writer used to manage connections
 	// to the kafka cluster directly. With the change to use a transport to manage
 	// connections, the writer has no connections to manage directly anymore.
 	IdleConnTimeout time.Duration
@@ -777,7 +780,7 @@ func (w *Writer) writeBatch(key topicPartition, batch *writeBatch) {
 			log.Printf("error writing messages to %s (partition %d): %s", key.topic, key.partition, err)
 		})
 
-		if !isTemporary(err) {
+		if !isTemporary(err) && !isTransientNetworkError(err) {
 			break
 		}
 	}
@@ -975,8 +978,10 @@ func (w *Writer) Stats() WriterStats {
 func (w *Writer) chooseTopic(msg Message) (string, error) {
 	// w.Topic and msg.Topic are mutually exclusive, meaning only 1 must be set
 	// otherwise we will return an error.
-	if (w.Topic != "" && msg.Topic != "") || (w.Topic == "" && msg.Topic == "") {
-		return "", InvalidMessage
+	if w.Topic != "" && msg.Topic != "" {
+		return "", errors.New("kafka.(*Writer): Topic must not be specified for both Writer and Message")
+	} else if w.Topic == "" && msg.Topic == "" {
+		return "", errors.New("kafka.(*Writer): Topic must be specified for Writer or Message")
 	}
 
 	// now we choose the topic, depending on which one is not empty
