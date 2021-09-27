@@ -1,5 +1,5 @@
 # 1) BUILD DEPENDENCIES
-FROM golang:1.16.0-alpine3.13 AS build-go
+FROM golang:1.17.1-alpine3.14 AS build-go
 RUN apk --no-cache add git
 ENV D=/go/src/github.com/qvantel/nerd
 ADD ./ $D/
@@ -14,6 +14,6 @@ FROM scratch
 WORKDIR /opt/docker
 COPY --from=build-go /tmp/nerd /tmp/fcollect /opt/docker/
 ENV GIN_MODE=release \
-    VERSION=0.4.0
+    VERSION=0.4.1
 EXPOSE 5400
 ENTRYPOINT [ "./nerd" ]

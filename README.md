@@ -39,7 +39,7 @@ If you just want to try nerd out and see what it can do, here is a quick guide f
       --log-opt max-size=5m --log-driver=json-file \
       -p 5400:5400 \
       -e "LOG_LEVEL=INFO" \
-      --name nerd qvantel/nerd:0.4.0
+      --name nerd qvantel/nerd:0.4.1
     ```
 1. Check that everything is up and running by going to http://localhost:5400 with your browser (if you see a welcome
 message, everything is good)
@@ -61,7 +61,7 @@ message, everything is good)
             docker run -it --rm \
               --add-host host.docker.internal:host-gateway \
               -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
-              --entrypoint=/opt/docker/fcollect qvantel/nerd:0.4.0 \
+              --entrypoint=/opt/docker/fcollect qvantel/nerd:0.4.1 \
                 -batch 50 \
                 -in 4 \
                 -margin 0.4999999 \
@@ -74,7 +74,7 @@ message, everything is good)
             ```bash
             docker run -it --rm \
               -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
-              --entrypoint=/opt/docker/fcollect qvantel/nerd:0.4.0 \
+              --entrypoint=/opt/docker/fcollect qvantel/nerd:0.4.1 \
                 -batch 50 \
                 -in 4 \
                 -margin 0.4999999 \
@@ -222,7 +222,7 @@ docker run -d --restart=unless-stopped -m 64m \
   -e "SD_KAFKA=host.docker.internal:9092" \
   -e "SD_REDIS=host.docker.internal:6379" \
   -e "ML_STORE_TYPE=redis" \
-  --name nerd qvantel/nerd:0.4.0
+  --name nerd qvantel/nerd:0.4.1
 ```
 > You can find all available tags [here](https://hub.docker.com/r/qvantel/nerd/tags)
 
@@ -275,7 +275,7 @@ after the image will be passed to fcollect as an argument):
 docker run -it --rm \
   -v $PWD/shuffled-dataset.txt:/opt/docker/dataset \
   --entrypoint=/opt/docker/fcollect \
-  --name fcollect qvantel/nerd:0.4.0 -series "demo" -producer "kafka" -targets "host.docker.internal:9092" -sep "," dataset
+  --name fcollect qvantel/nerd:0.4.1 -series "demo" -producer "kafka" -targets "host.docker.internal:9092" -sep "," dataset
 ```
 Where the `-series` and `-targets` flags as well as the path to the dataset (full or relative to `/opt/docker` inside
 the container) are required. Additionally, the following flags can be used to change the behaviour of the tool:
